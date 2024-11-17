@@ -6,17 +6,17 @@ import { db } from "@/firebase";
 import * as faceapi from "face-api.js";
 import { FaCamera } from "react-icons/fa";
 
-const AdminRegister = () => {
-  const [name, setName] = useState("");
-  const [status, setStatus] = useState("");
-  const [image, setImage] = useState(null);
-  const [useCamera, setUseCamera] = useState(false);
+const AdminRegister: React.FC = () => {
+  const [name, setName] = useState<string>("");
+  const [status, setStatus] = useState<string>("");
+  const [image, setImage] = useState<File | null>(null);
+  const [useCamera, setUseCamera] = useState<boolean>(false);
 
-  const videoRef = React.useRef(null);
-  const canvasRef = React.useRef(null);
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
 
   // Load models for face detection and recognition
-  const loadModels = async () => {
+  const loadModels = async (): Promise<void> => {
     setStatus("Loading face detection models...");
     await faceapi.nets.ssdMobilenetv1.loadFromUri("/models");
     await faceapi.nets.faceRecognitionNet.loadFromUri("/models");
@@ -24,14 +24,18 @@ const AdminRegister = () => {
     setStatus("Face detection models loaded successfully.");
   };
 
-  const handleImageUpload = (e) => {
-    setImage(e.target.files[0]);
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>): void => {
+    if (e.target.files && e.target.files.length > 0) {
+      setImage(e.target.files[0]);
+    }
   };
 
-  const startCamera = async () => {
-    let answer = confirm("This website is accessing your camera. Are you aware ?");
-    {answer ? setUseCamera(true):null}
-    await loadModels()
+  const startCamera = async (): Promise<void> => {
+    const answer = confirm("This website is accessing your camera. Are you aware?");
+    if (!answer) return;
+
+    setUseCamera(true);
+    await loadModels();
 
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -41,16 +45,16 @@ const AdminRegister = () => {
     }
   };
 
-  const stopCamera = () => {
+  const stopCamera = (): void => {
     setUseCamera(false);
-    const stream = videoRef.current?.srcObject;
+    const stream = videoRef.current?.srcObject as MediaStream;
     if (stream) {
       const tracks = stream.getTracks();
-      tracks.forEach((track) => track.stop());
+      tracks.forEach((track: MediaStreamTrack) => track.stop());
     }
   };
 
-  const detectFaceFromCamera = async () => {
+  const detectFaceFromCamera = async (): Promise<void> => {
     if (!videoRef.current) return;
 
     const detections = await faceapi
@@ -66,7 +70,7 @@ const AdminRegister = () => {
     await registerUser(detections.descriptor);
   };
 
-  const detectFaceFromImage = async () => {
+  const detectFaceFromImage = async (): Promise<void> => {
     if (!image) {
       setStatus("Please upload an image.");
       return;
@@ -88,7 +92,7 @@ const AdminRegister = () => {
     await registerUser(detections.descriptor);
   };
 
-  const registerUser = async (embedding) => {
+  const registerUser = async (embedding: Float32Array): Promise<void> => {
     try {
       if (!name) {
         setStatus("Please enter the user's name.");
@@ -129,18 +133,22 @@ const AdminRegister = () => {
       setName("");
       setImage(null);
     } catch (error) {
-      setStatus(`Error during registration: ${error.message}`);
+      if (error instanceof Error) {
+        setStatus(`Error during registration: ${error.message}`);
+      } else {
+        setStatus("An unknown error occurred during registration.");
+      }
     }
   };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 relative">
       <h1 className="text-3xl font-bold mb-6 text-gray-800">Admin: Register User</h1>
-      <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-lg ">
+      <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-lg relative">
         {/* Camera Icon */}
         <div
           className={`absolute top-2 right-2 p-2 rounded-full ${
-            useCamera ? "bg-green-500 animate-pulse mt-7" : "bg-red-500"
+            useCamera ? "bg-green-500 animate-pulse" : "bg-red-500"
           } text-white shadow-lg cursor-pointer`}
           onClick={useCamera ? stopCamera : startCamera}
           title={useCamera ? "Camera is ON" : "Camera is OFF"}
