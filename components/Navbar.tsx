@@ -103,11 +103,11 @@ const Navbar = () => {
                   Admin
                 </p>
               </Link>
-              <Link href="/user" onClick={closeMobileMenu}>
+              {/* <Link href="/user" onClick={closeMobileMenu}>
                 <p className="text-gray-700 font-semibold hover:text-blue-600 dark:text-white">
                   User
                 </p>
-              </Link>
+              </Link> */}
             </div>
 
             {/* Theme Toggle Button */}
