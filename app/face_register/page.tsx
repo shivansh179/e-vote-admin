@@ -11,11 +11,16 @@ const AdminRegister: React.FC = () => {
   const [status, setStatus] = useState<string>("");
   const [image, setImage] = useState<File | null>(null);
   const [useCamera, setUseCamera] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [dialog, setDialog] = useState<{ visible: boolean; message: string; type: string }>({
+    visible: false,
+    message: "",
+    type: "",
+  });
 
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
 
-  // Load models for face detection and recognition
   const loadModels = async (): Promise<void> => {
     setStatus("Loading face detection models...");
     await faceapi.nets.ssdMobilenetv1.loadFromUri("/models");
@@ -57,13 +62,16 @@ const AdminRegister: React.FC = () => {
   const detectFaceFromCamera = async (): Promise<void> => {
     if (!videoRef.current) return;
 
+    setIsLoading(true);
     const detections = await faceapi
       .detectSingleFace(videoRef.current)
       .withFaceLandmarks()
       .withFaceDescriptor();
 
+    setIsLoading(false);
+
     if (!detections) {
-      setStatus("Face not detected. Please adjust your position.");
+      showDialog("Face not detected. Please adjust your position.", "error");
       return;
     }
 
@@ -72,10 +80,11 @@ const AdminRegister: React.FC = () => {
 
   const detectFaceFromImage = async (): Promise<void> => {
     if (!image) {
-      setStatus("Please upload an image.");
+      showDialog("Please upload an image.", "error");
       return;
     }
 
+    setIsLoading(true);
     await loadModels();
 
     const img = await faceapi.bufferToImage(image);
@@ -84,8 +93,10 @@ const AdminRegister: React.FC = () => {
       .withFaceLandmarks()
       .withFaceDescriptor();
 
+    setIsLoading(false);
+
     if (!detections) {
-      setStatus("Face not detected in the image. Please try again.");
+      showDialog("Face not detected in the image. Please try again.", "error");
       return;
     }
 
@@ -95,7 +106,7 @@ const AdminRegister: React.FC = () => {
   const registerUser = async (embedding: Float32Array): Promise<void> => {
     try {
       if (!name) {
-        setStatus("Please enter the user's name.");
+        showDialog("Please enter the user's name.", "error");
         return;
       }
 
@@ -114,38 +125,37 @@ const AdminRegister: React.FC = () => {
       });
 
       if (isDuplicate) {
-        setStatus("Duplicate registration detected. This user is already registered.");
+        showDialog("Duplicate registration detected. This user is already registered.", "error");
         return;
       }
 
-      // Generate a unique ID for the user
       const userId = `user_${Date.now()}`;
-
-      // Store user information and embedding in Firebase
       await addDoc(collection(db, "voters"), {
         user_id: userId,
         name,
-        embedding: Array.from(embedding), // Convert Float32Array to regular array
-        voted: false, // Initialize voted flag
+        embedding: Array.from(embedding),
+        voted: false,
       });
 
-      setStatus(`User registered successfully! ID: ${userId}`);
+      showDialog(`User registered successfully! ID: ${userId}`, "success");
       setName("");
       setImage(null);
     } catch (error) {
-      if (error instanceof Error) {
-        setStatus(`Error during registration: ${error.message}`);
-      } else {
-        setStatus("An unknown error occurred during registration.");
-      }
+      showDialog(`Error during registration: ${(error as Error).message}`, "error");
     }
+  };
+
+  const showDialog = (message: string, type: "success" | "error"): void => {
+    setDialog({ visible: true, message, type });
+    setTimeout(() => {
+      setDialog({ visible: false, message: "", type: "" });
+    }, 3000);
   };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 relative">
       <h1 className="text-3xl font-bold mb-6 text-gray-800">Admin: Register User</h1>
       <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-lg relative">
-        {/* Camera Icon */}
         <div
           className={`absolute top-2 right-2 p-2 rounded-full ${
             useCamera ? "bg-green-500 animate-pulse" : "bg-red-500"
@@ -192,6 +202,26 @@ const AdminRegister: React.FC = () => {
         </div>
         {status && <p className="text-center text-gray-700 mt-4">{status}</p>}
       </div>
+
+      {isLoading && (
+        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      )}
+
+      {dialog.visible && (
+        <div
+          className={`absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center`}
+        >
+          <div
+            className={`p-6 rounded-lg text-white ${
+              dialog.type === "success" ? "bg-green-500" : "bg-red-500"
+            }`}
+          >
+            <p>{dialog.message}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
