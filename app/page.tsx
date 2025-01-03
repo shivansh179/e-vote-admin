@@ -132,9 +132,9 @@ const LandingPage = () => {
           </p>
           <button
             className="bg-blue-600 text-white px-10 py-4 rounded-full text-lg font-bold shadow-lg hover:bg-blue-700 hover:scale-105 transform transition"
-            onClick={() => router.push("/user")}
+            onClick={() => router.push("/auth")}
           >
-            Vote Now
+            Admin Section
           </button>
         </section>
 

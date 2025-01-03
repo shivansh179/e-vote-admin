@@ -1,15 +1,30 @@
-import Link from 'next/link';
-import React, { useState } from 'react';
-import Image from 'next/image';
-import { useTheme } from './ThemeContext';
+import Link from "next/link";
+import React, { useState } from "react";
+import Image from "next/image";
+import { useTheme } from "./ThemeContext";
 
 const Navbar = () => {
   const { theme, toggleTheme } = useTheme();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Toggle mobile menu visibility
+  const navClasses =
+    theme === "light"
+      ? "bg-white text-gray-700"
+      : "bg-gray-800 text-gray-200";
+
+  const hoverLinkClasses =
+    theme === "light"
+      ? "hover:text-indigo-500"
+      : "hover:text-indigo-300";
+
+  const buttonHoverClasses =
+    theme === "light"
+      ? "hover:bg-gray-100"
+      : "hover:bg-gray-700";
+
+  // Toggle mobile menu
   const toggleMobileMenu = () => {
-    setIsMobileMenuOpen(!isMobileMenuOpen);
+    setIsMobileMenuOpen((prev) => !prev);
   };
 
   // Close mobile menu
@@ -18,64 +33,62 @@ const Navbar = () => {
   };
 
   return (
-    <nav className="flex items-center justify-between p-4 bg-white shadow-md dark:bg-gray-800">
-      {/* Logo */}
-      <div className="flex-shrink-0">
+    <header className={`sticky top-0 z-50 shadow ${navClasses}`}>
+      <nav className="flex items-center justify-between px-4 py-3 md:px-8">
+        {/* Logo / Brand */}
         <Link href="/" aria-label="Home">
-          <div className="w-10 h-10">
+          <div className="flex items-center cursor-pointer">
             <Image
               className="rounded-full"
               src="/vote.png"
               alt="Logo"
               width={40}
               height={40}
-              layout="fixed"
               priority
             />
           </div>
         </Link>
-      </div>
 
-          {/* Desktop Navigation Links */}
-          <div className='flex gap-5'>
-            <button
-          onClick={toggleTheme}
-          className="p-2 rounded-md hidden md:block hover:bg-indigo-200 dark:hover:bg-indigo-600 transition-all duration-300"
-        >
-          <Image
-            src={theme === 'light' ? '/moon-icon.png' : '/sun-icon.png'}
-            alt={theme === 'light' ? 'Sun Icon' : 'Moon Icon'}
-            width={24}
-            height={24}
-            className="transition-all duration-300"
-          />
-        </button>
-      <div className="flex items-center gap-10">
-        <div className="hidden md:flex space-x-8">
+        {/* Desktop Links */}
+        <div className="hidden md:flex items-center space-x-6">
           <Link href="/auth">
-            <p className="text-gray-700 font-semibold hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600 rounded dark:text-white">
+            <p className={`font-medium transition ${hoverLinkClasses}`}>
               Admin
             </p>
           </Link>
-         
-                  </div>
-                  </div>
+          {/* Theme Toggle Button (Desktop) */}
+          <button
+            onClick={toggleTheme}
+            className={`p-2 rounded-full transition ${buttonHoverClasses}`}
+            aria-label="Toggle Theme"
+          >
+            <Image
+              src={theme === "light" ? "/night-mode.png" : "/brightness.png"}
+              alt={theme === "light" ? "Moon Icon" : "Sun Icon"}
+              width={24}
+              height={24}
+            />
+          </button>
+        </div>
 
-      
-      </div>
+        {/* Mobile Menu Button */}
+        <div className="md:hidden">
+          <button
+            onClick={toggleMobileMenu}
+            className={`p-2 rounded-full transition ${buttonHoverClasses}`}
+            aria-label="Open Menu"
+          >
+            <Image
+              src="/hamburger.png"
+              alt="Open Menu"
+              width={24}
+              height={24}
+            />
+          </button>
+        </div>
+      </nav>
 
-      {/* Mobile Menu Button */}
-      <div className="md:hidden">
-        <button
-          aria-label="Open Menu"
-          onClick={toggleMobileMenu}
-          className="text-gray-700 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600 rounded dark:text-white"
-        >
-          ☰
-        </button>
-      </div>
-
-      {/* Mobile Menu with Backdrop */}
+      {/* Mobile Menu + Backdrop */}
       {isMobileMenuOpen && (
         <>
           {/* Backdrop */}
@@ -84,50 +97,54 @@ const Navbar = () => {
             onClick={closeMobileMenu}
           ></div>
 
-          {/* Sidebar */}
-          <div className="fixed top-0 right-0 left-44 h-full w-64 bg-white dark:bg-gray-800 shadow-lg p-6 z-50 transform translate-x-0 transition-transform duration-300">
+          {/* Sliding Panel */}
+          <div
+            className={`fixed top-0 right-0 h-full w-64 ${navClasses} shadow-md p-6 z-50 transform ${
+              isMobileMenuOpen ? "translate-x-0" : "translate-x-full"
+            } transition-transform duration-200`}
+          >
             {/* Close Button */}
             <button
-              aria-label="Close Menu"
               onClick={closeMobileMenu}
-              className="text-gray-700 dark:text-white hover:text-blue-600 focus:outline-none"
+              className={`p-2 rounded-full transition ${buttonHoverClasses} mb-4`}
+              aria-label="Close Menu"
             >
-              ✕
+              <Image
+                src="/close.png"
+                alt="Close Menu"
+                width={24}
+                height={24}
+              />
             </button>
 
-            <div className="mt-8 space-y-6">
-              {/* Navigation Links */}
+            {/* Nav Links (Mobile) */}
+            <div className="flex flex-col space-y-4">
               <Link href="/auth" onClick={closeMobileMenu}>
-                <p className="text-gray-700 font-semibold hover:text-blue-600 dark:text-white">
+                <p className={`font-medium transition ${hoverLinkClasses}`}>
                   Admin
                 </p>
               </Link>
-              {/* <Link href="/user" onClick={closeMobileMenu}>
-                <p className="text-gray-700 font-semibold hover:text-blue-600 dark:text-white">
-                  User
-                </p>
-              </Link> */}
-            </div>
-
-            {/* Theme Toggle Button */}
-            <div className="mt-8">
+              {/* Theme Toggle Button (Mobile) */}
               <button
-                onClick={toggleTheme}
-                className="p-2 rounded-md hover:bg-indigo-200 dark:hover:bg-indigo-600 transition-all duration-300"
+                onClick={() => {
+                  toggleTheme();
+                  closeMobileMenu();
+                }}
+                className={`p-2 rounded-full w-10 transition ${buttonHoverClasses}`}
+                aria-label="Toggle Theme"
               >
                 <Image
-                  src={theme === 'light' ? '/moon-icon.png' : '/sun-icon.png'}
-                  alt={theme === 'light' ? 'Sun Icon' : 'Moon Icon'}
+                  src={theme === "light" ? "/night-mode.png" : "/brightness.png"}
+                  alt={theme === "light" ? "Moon Icon" : "Sun Icon"}
                   width={24}
                   height={24}
-                  className="transition-all duration-300"
                 />
               </button>
             </div>
           </div>
         </>
       )}
-    </nav>
+    </header>
   );
 };
 
