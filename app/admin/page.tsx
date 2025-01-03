@@ -18,6 +18,7 @@ const AdminPage = () => {
   // For adding new voter
   const [voterEmail, setVoterEmail] = useState("");
   const [voterPassword, setVoterPassword] = useState("");
+  const [voterPin, setVoterPin] = useState("");
 
   // For adding new candidate
   const [candidateName, setCandidateName] = useState("");
@@ -111,11 +112,13 @@ const AdminPage = () => {
       await addDoc(collection(db, "users"), {
         uid: userCredential.user.uid,
         email: voterEmail,
+        pin:voterPin,
         password: voterPassword,
         role: "voter",
       });
       setVoterEmail("");
       setVoterPassword("");
+      setVoterPin("");
       alert("Voter credentials created successfully.");
     } catch (error) {
       console.error("Error creating voter credentials:", error);
@@ -285,6 +288,18 @@ const AdminPage = () => {
                     placeholder="Enter voter password"
                     value={voterPassword}
                     onChange={(e) => setVoterPassword(e.target.value)}
+                    className={`w-full p-3 rounded-md outline-none ${inputStyle}`}
+                  />
+                </div>
+                <div className="mb-4">
+                  <label className="block mb-1 text-sm font-medium">
+                    Voter Secret Pin
+                  </label>
+                  <input
+                    type="pin"
+                    placeholder="Enter Secret Pin"
+                    value={voterPin}
+                    onChange={(e) => setVoterPin(e.target.value)}
                     className={`w-full p-3 rounded-md outline-none ${inputStyle}`}
                   />
                 </div>
