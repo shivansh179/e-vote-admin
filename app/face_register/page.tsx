@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { collection, addDoc, getDocs } from "firebase/firestore";
+import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
 import { db } from "@/firebase";
 import * as faceapi from "face-api.js";
 import { FaCamera, FaMoon, FaSun } from "react-icons/fa";
@@ -15,7 +15,7 @@ const AdminRegister: React.FC = () => {
   const [theme, setTheme] = useState<"light" | "dark">("dark");
 
   // Additional states
-  const [name, setName] = useState("");
+  const [voterEmail, setVoterEmail] = useState("");
   const [status, setStatus] = useState("");
   const [image, setImage] = useState<File | null>(null);
   const [useCamera, setUseCamera] = useState(false);
@@ -24,7 +24,7 @@ const AdminRegister: React.FC = () => {
     visible: boolean;
     message: string;
     type: "success" | "error";
-  }>( {
+  }>({
     visible: false,
     message: "",
     type: "success",
@@ -38,18 +38,6 @@ const AdminRegister: React.FC = () => {
   const toggleTheme = () => {
     setTheme((prev) => (prev === "dark" ? "light" : "dark"));
   };
-
-  // Optionally, you can sync theme with localStorage:
-  // useEffect(() => {
-  //   const savedTheme = localStorage.getItem("adminRegisterTheme");
-  //   if (savedTheme === "dark" || savedTheme === "light") {
-  //     setTheme(savedTheme);
-  //   }
-  // }, []);
-  //
-  // useEffect(() => {
-  //   localStorage.setItem("adminRegisterTheme", theme);
-  // }, [theme]);
 
   // DIALOG / TOAST HELPERS
   const showDialog = (message: string, type: "success" | "error") => {
@@ -115,11 +103,10 @@ const AdminRegister: React.FC = () => {
 
   // FACE DETECTION (from camera)
   const detectFaceFromCamera = async () => {
-    // Immediately show spinner
-    setIsLoading(true);
+    setIsLoading(true); // show spinner immediately
 
-    if (!name.trim()) {
-      toast.error("Please enter a name before registering.");
+    if (!voterEmail.trim()) {
+      toast.error("Please enter an email before registering.");
       setIsLoading(false);
       return;
     }
@@ -146,15 +133,13 @@ const AdminRegister: React.FC = () => {
     } catch (error) {
       showDialog("Error detecting face from camera.", "error");
     } finally {
-      // Always stop spinner
       setIsLoading(false);
     }
   };
 
   // FACE DETECTION (from image)
   const detectFaceFromImage = async () => {
-    // Immediately show spinner
-    setIsLoading(true);
+    setIsLoading(true); // show spinner immediately
 
     if (!image) {
       showDialog("Please upload an image first.", "error");
@@ -162,8 +147,8 @@ const AdminRegister: React.FC = () => {
       return;
     }
 
-    if (!name.trim()) {
-      toast.error("Please enter a name before registering.");
+    if (!voterEmail.trim()) {
+      toast.error("Please enter an email before registering.");
       setIsLoading(false);
       return;
     }
@@ -187,54 +172,92 @@ const AdminRegister: React.FC = () => {
     } catch (error) {
       showDialog("Error detecting face from image.", "error");
     } finally {
-      // Always stop spinner
       setIsLoading(false);
     }
   };
 
-  // REGISTRATION
+  /**
+   * REGISTRATION / UPDATE
+   * 1) Check if the `voterEmail` exists in the `users` collection.
+   * 2) If found, check if that doc already has an embedding; if yes, show error and stop.
+   * 3) Otherwise, check for duplicate face embeddings among *all users*.
+   * 4) If not duplicate, update the found doc with the new face embedding, etc.
+   */
   const registerUser = async (embedding: Float32Array) => {
-    // Show a loading toast while checking for duplicates
-    const checkingToastId = toast.loading("Checking for duplicate registration...");
+    // Show a loading toast while checking for the user doc
+    const checkingToastId = toast.loading(
+      "Verifying email & checking for duplicates..."
+    );
 
     try {
-      const votersSnapshot = await getDocs(collection(db, "voters"));
+      // 1) Get all docs from "users"
+      const usersSnapshot = await getDocs(collection(db, "users"));
+
+      // Find the doc with the matching email
+      let userDocId: string | null = null;
+      let foundEmbedding: boolean = false;
       let isDuplicate = false;
 
-      votersSnapshot.forEach((doc) => {
-        const voterData = doc.data();
-        const dbEmbedding = new Float32Array(voterData.embedding);
-        const distance = faceapi.euclideanDistance(embedding, dbEmbedding);
+      // We'll store the doc data for the user so we can check if embedding exists
+      let userDocData: any = null;
 
-        // Threshold of 0.6 indicates likely the same person
-        if (distance < 0.6) {
-          isDuplicate = true;
+      usersSnapshot.forEach((docSnap) => {
+        const userData = docSnap.data();
+        if (userData.email === voterEmail) {
+          userDocId = docSnap.id;
+          userDocData = userData;
+        }
+      });
+
+      if (!userDocId) {
+        toast.dismiss(checkingToastId);
+        toast.error("You are not registered / Your credentials are not present");
+        return;
+      }
+
+      // 2) If user doc has an existing embedding, show error & stop
+      if (userDocData?.embedding) {
+        toast.dismiss(checkingToastId);
+        toast.error("Face data already exists for this email. Cannot add another.");
+        return;
+      }
+
+      // 3) Check for duplicate face among all users
+      usersSnapshot.forEach((docSnap) => {
+        const userData = docSnap.data();
+        if (userData.embedding) {
+          // Compare embeddings
+          const dbEmbedding = new Float32Array(userData.embedding);
+          const distance = faceapi.euclideanDistance(embedding, dbEmbedding);
+
+          // Threshold of 0.6 => likely the same person
+          if (distance < 0.6) {
+            isDuplicate = true;
+          }
         }
       });
 
       if (isDuplicate) {
         toast.dismiss(checkingToastId);
-        toast.error("Duplicate registration detected. This user is already registered.");
+        toast.error("Duplicate face detected. This user (face) is already registered.");
         return;
       }
 
-      const userId = `user_${Date.now()}`;
-      await addDoc(collection(db, "voters"), {
-        user_id: userId,
-        name,
+      // 4) If not duplicate, update the found doc with the new data
+      const userDocRef = doc(db, "users", userDocId);
+      await updateDoc(userDocRef, {
         embedding: Array.from(embedding),
         voted: false,
       });
 
-      // Dismiss the "checking" toast and show success
       toast.dismiss(checkingToastId);
-      showDialog(`User registered successfully! ID: ${userId}`, "success");
+      showDialog(`Face data saved successfully for: ${voterEmail}`, "success");
 
       // Clear inputs
-      setName("");
+      setVoterEmail("");
       setImage(null);
 
-      // Update admin progress in localStorage
+      // Store progress in localStorage (optional)
       localStorage.setItem("adminProgress", "1");
       localStorage.setItem("faceIdAdded", "true");
 
@@ -244,10 +267,7 @@ const AdminRegister: React.FC = () => {
       }, 1500);
     } catch (error) {
       toast.dismiss(checkingToastId);
-      showDialog(
-        `Error during registration: ${(error as Error).message}`,
-        "error"
-      );
+      showDialog(`Error during registration: ${(error as Error).message}`, "error");
     }
   };
 
@@ -306,17 +326,17 @@ const AdminRegister: React.FC = () => {
           <FaCamera size={20} />
         </div>
 
-        {/* Name Input */}
+        {/* Email Input */}
         <div className="mb-6">
-          <label htmlFor="name" className={labelClass}>
-            User Name
+          <label htmlFor="email" className={labelClass}>
+            User Email
           </label>
           <input
-            id="name"
+            id="email"
             type="text"
-            placeholder="Enter user name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+            placeholder="Enter user email"
+            value={voterEmail}
+            onChange={(e) => setVoterEmail(e.target.value)}
             className={inputClass}
           />
         </div>
@@ -331,10 +351,6 @@ const AdminRegister: React.FC = () => {
               className="border mb-4 rounded-md w-full max-w-sm"
             />
             <canvas ref={canvasRef} style={{ display: "none" }} />
-            {/* 
-              We show spinner immediately when user clicks this button 
-              by calling setIsLoading(true) before detectFaceFromCamera
-            */}
             <button
               onClick={detectFaceFromCamera}
               className="w-full bg-green-500 text-white py-2 px-4 rounded-lg hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-400 transition"
@@ -365,11 +381,7 @@ const AdminRegister: React.FC = () => {
         </div>
 
         {/* Status Text */}
-        {status && (
-          <p className="text-center mt-2 text-sm">
-            {status}
-          </p>
-        )}
+        {status && <p className="text-center mt-2 text-sm">{status}</p>}
       </div>
 
       {/* Loading Overlay (Spinner) */}
