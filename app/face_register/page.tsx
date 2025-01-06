@@ -1,13 +1,156 @@
+// app/voting/page.tsx
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
+import {
+  collection,
+  getDocs,
+  doc,
+  setDoc,
+  updateDoc,
+} from "firebase/firestore";
 import { db } from "@/firebase";
 import * as faceapi from "face-api.js";
 import { FaCamera, FaMoon, FaSun } from "react-icons/fa";
 import toast, { Toaster } from "react-hot-toast";
+import SHA256 from "crypto-js/sha256";
 
+/** -----------------------------
+ *  Block and Blockchain Classes
+ * -----------------------------
+ */
+interface BlockData {
+  userId: string;
+  candidateId: string;
+  timestamp: string;
+}
+
+class Block {
+  public index: number;
+  public timestamp: string;
+  public data: any;
+  public previousHash: string;
+  public hash: string;
+  public nonce: number;
+
+  constructor(
+    index: number,
+    timestamp: string,
+    data: any,
+    previousHash = "",
+    nonce = 0
+  ) {
+    this.index = index;
+    this.timestamp = timestamp;
+    this.data = data;
+    this.previousHash = previousHash;
+    this.nonce = nonce;
+    this.hash = this.calculateHash();
+  }
+
+  public calculateHash(): string {
+    return SHA256(
+      this.index +
+        this.previousHash +
+        this.timestamp +
+        JSON.stringify(this.data) +
+        this.nonce
+    ).toString();
+  }
+}
+
+class Blockchain {
+  public chain: Block[];
+
+  constructor() {
+    this.chain = [];
+    this.createGenesisBlock();
+  }
+
+  private createGenesisBlock() {
+    if (this.chain.length === 0) {
+      const genesisBlock = new Block(
+        0,
+        new Date().toISOString(),
+        { isGenesis: true },
+        "0",
+        0
+      );
+      this.chain.push(genesisBlock);
+    }
+  }
+
+  public getLatestBlock(): Block {
+    return this.chain[this.chain.length - 1];
+  }
+
+  public addBlock(newData: BlockData): void {
+    const lastBlock = this.getLatestBlock();
+    const newBlock = new Block(
+      lastBlock.index + 1,
+      new Date().toISOString(),
+      newData,
+      lastBlock.hash,
+      0
+    );
+    this.chain.push(newBlock);
+  }
+
+  public isChainValid(): boolean {
+    for (let i = 1; i < this.chain.length; i++) {
+      const currentBlock = this.chain[i];
+      const previousBlock = this.chain[i - 1];
+
+      // Uncomment to enable hash validation
+      // const recalculatedHash = currentBlock.calculateHash();
+      // if (currentBlock.hash !== recalculatedHash) {
+      //   console.error(
+      //     `Block #${currentBlock.index} hash mismatch:
+      //      Stored:      ${currentBlock.hash}
+      //      Recalculated:${recalculatedHash}`
+      //   );
+      //   return false;
+      // }
+
+      if (currentBlock.previousHash !== previousBlock.hash) {
+        console.error(
+          `Block #${currentBlock.index} previousHash mismatch:
+           currentBlock.previousHash: ${currentBlock.previousHash}
+           previousBlock.hash:       ${previousBlock.hash}`
+        );
+        return false;
+      }
+    }
+    return true;
+  }
+}
+
+/** -----------------------------
+ *  Firestore Helpers
+ * -----------------------------
+ */
+const votingBlockchain = new Blockchain();
+
+async function saveBlockchainToFirebase(chain: Blockchain) {
+  const chainCol = collection(db, "debugChain");
+  for (const block of chain.chain) {
+    const docRef = doc(chainCol, block.index.toString());
+    await setDoc(docRef, {
+      index: block.index,
+      timestamp: block.timestamp,
+      data: block.data,
+      previousHash: block.previousHash,
+      hash: block.hash,
+      nonce: block.nonce,
+    });
+  }
+}
+
+/** -----------------------------
+ *  Admin Register Component
+ * -----------------------------
+ */
 const AdminRegister: React.FC = () => {
   const router = useRouter();
 
@@ -59,9 +202,11 @@ const AdminRegister: React.FC = () => {
         faceapi.nets.faceLandmark68Net.loadFromUri("/models"),
       ]);
       setStatus("Face detection models loaded successfully.");
-      toast("Face detection models loaded successfully.");
+      toast.success("Face detection models loaded successfully.");
     } catch (error) {
       showDialog("Error loading face detection models.", "error");
+      toast.error("Error loading face detection models.");
+      console.error(error);
     } finally {
       setIsLoading(false);
     }
@@ -132,6 +277,8 @@ const AdminRegister: React.FC = () => {
       await registerUser(detections.descriptor);
     } catch (error) {
       showDialog("Error detecting face from camera.", "error");
+      toast.error("Error detecting face from camera.");
+      console.error(error);
     } finally {
       setIsLoading(false);
     }
@@ -164,6 +311,7 @@ const AdminRegister: React.FC = () => {
 
       if (!detections) {
         showDialog("Face not detected in the image. Please try again.", "error");
+        toast.error("Face not detected in the image. Please try again.");
         return;
       }
 
@@ -171,6 +319,8 @@ const AdminRegister: React.FC = () => {
       await registerUser(detections.descriptor);
     } catch (error) {
       showDialog("Error detecting face from image.", "error");
+      toast.error("Error detecting face from image.");
+      console.error(error);
     } finally {
       setIsLoading(false);
     }
@@ -180,8 +330,8 @@ const AdminRegister: React.FC = () => {
    * REGISTRATION / UPDATE
    * 1) Check if the `voterEmail` exists in the `users` collection.
    * 2) If found, check if that doc already has an embedding; if yes, show error and stop.
-   * 3) Otherwise, check for duplicate face embeddings among *all users*.
-   * 4) If not duplicate, update the found doc with the new face embedding, etc.
+   * 3) Otherwise, check for duplicate face embeddings in `userEmbeddings` collection.
+   * 4) If not duplicate, update the found doc with the new face embedding and add to `userEmbeddings`.
    */
   const registerUser = async (embedding: Float32Array) => {
     // Show a loading toast while checking for the user doc
@@ -195,10 +345,6 @@ const AdminRegister: React.FC = () => {
 
       // Find the doc with the matching email
       let userDocId: string | null = null;
-      let foundEmbedding: boolean = false;
-      let isDuplicate = false;
-
-      // We'll store the doc data for the user so we can check if embedding exists
       let userDocData: any = null;
 
       usersSnapshot.forEach((docSnap) => {
@@ -211,7 +357,7 @@ const AdminRegister: React.FC = () => {
 
       if (!userDocId) {
         toast.dismiss(checkingToastId);
-        toast.error("You are not registered / Your credentials are not present");
+        toast.error("You are not registered / Your credentials are not present.");
         return;
       }
 
@@ -222,13 +368,15 @@ const AdminRegister: React.FC = () => {
         return;
       }
 
-      // 3) Check for duplicate face among all users
-      usersSnapshot.forEach((docSnap) => {
-        const userData = docSnap.data();
-        if (userData.embedding) {
-          // Compare embeddings
-          const dbEmbedding = new Float32Array(userData.embedding);
-          const distance = faceapi.euclideanDistance(embedding, dbEmbedding);
+      // 3) Check for duplicate face embeddings in "userEmbeddings" collection
+      const embeddingsSnapshot = await getDocs(collection(db, "userEmbeddings"));
+      let isDuplicate = false;
+
+      embeddingsSnapshot.forEach((docSnap) => {
+        const embeddingData = docSnap.data();
+        if (embeddingData.embedding) {
+          const dbEmbedding = new Float32Array(embeddingData.embedding);
+          const distance = euclideanDistance(embedding, dbEmbedding);
 
           // Threshold of 0.6 => likely the same person
           if (distance < 0.6) {
@@ -243,21 +391,29 @@ const AdminRegister: React.FC = () => {
         return;
       }
 
-      // 4) If not duplicate, update the found doc with the new data
+      // 4) If not duplicate, update the found doc with the new data and add to "userEmbeddings"
       const userDocRef = doc(db, "users", userDocId);
       await updateDoc(userDocRef, {
         embedding: Array.from(embedding),
         voted: false,
       });
 
+      // Add embedding to "userEmbeddings" collection
+      await setDoc(doc(collection(db, "userEmbeddings")), {
+        email: voterEmail,
+        embedding: Array.from(embedding),
+        timestamp: new Date().toISOString(),
+      });
+
       toast.dismiss(checkingToastId);
       showDialog(`Face data saved successfully for: ${voterEmail}`, "success");
+      toast.success(`Face data saved successfully for: ${voterEmail}`);
 
       // Clear inputs
       setVoterEmail("");
       setImage(null);
 
-      // Store progress in localStorage (optional)
+      // Optionally, store progress in localStorage
       localStorage.setItem("adminProgress", "1");
       localStorage.setItem("faceIdAdded", "true");
 
@@ -268,7 +424,20 @@ const AdminRegister: React.FC = () => {
     } catch (error) {
       toast.dismiss(checkingToastId);
       showDialog(`Error during registration: ${(error as Error).message}`, "error");
+      toast.error(`Error during registration: ${(error as Error).message}`);
+      console.error(error);
     }
+  };
+
+  /**
+   * Helper Function to Calculate Euclidean Distance between two embeddings
+   */
+  const euclideanDistance = (emb1: Float32Array, emb2: Float32Array): number => {
+    let sum = 0;
+    for (let i = 0; i < emb1.length; i++) {
+      sum += Math.pow(emb1[i] - emb2[i], 2);
+    }
+    return Math.sqrt(sum);
   };
 
   // THEMED CLASSES
@@ -354,6 +523,7 @@ const AdminRegister: React.FC = () => {
             <button
               onClick={detectFaceFromCamera}
               className="w-full bg-green-500 text-white py-2 px-4 rounded-lg hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-400 transition"
+              disabled={isLoading}
             >
               Register with Camera
             </button>
@@ -375,6 +545,7 @@ const AdminRegister: React.FC = () => {
           <button
             onClick={detectFaceFromImage}
             className="w-full bg-purple-500 text-white py-2 px-4 rounded-lg hover:bg-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition"
+            disabled={isLoading}
           >
             Register with Image
           </button>
